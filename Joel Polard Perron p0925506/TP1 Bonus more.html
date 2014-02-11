@@ -1,0 +1,754 @@
+
+<!-- saved from url=(0053)http://www.iro.umontreal.ca/~dift6095/js_minimal.html 
+
+0 – Spécifications de la scène
+Nous allons utiliser la même scène 3D pour chaque partie du TP. Voici les spécifications de la scène:
+• Caméra perspective
+o position = (50,52,296)
+o direction (au lieu d’une position) look-at = |(0,-0.043,-1)| o vecteur de la direction droite = 𝑥
+o champ de vision = 29.5 degrés
+o Lumière directionnelle à |(-10,4,10)|; intensité = 𝜋 • Scène avec 2 sphères diffuses (format = rayon, centre, 𝜌)
+o 10!, (80, 10!,0), (0.75, 0.75, 0.75)
+o 40, (50,40,0), (0.3,0.5,0.75)
+Effectuez votre rendu sur un élément de canvas à résolution 512 × 384.-- -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1">        
+<script type="text/javascript">
+var tracer = [];
+var earthData = [];
+
+// earthimg.onload = function(){
+    
+// }
+
+
+function clamp( x ){
+    return x<0 ? 0 : x>1 ? 1 : x;
+}
+
+// do some basic tonemapping for gamma correction, and map [0,1] radiance values to 8-bit output pixel values
+function gammaCorrectToInt( x ) {
+    return Math.floor( Math.pow( clamp( x ), 1/2.2 ) * 255 + 0.5 );
+}
+
+function Box(min, max){
+
+    this.min = min;
+    this.max = max;
+
+}
+//Définition d'une sphère dans l'espace 3d. p correspondent aux 3 valeurs de réflectance    
+function Sphere(radius, x, y, z, p1, p2, p3, texture_index,isReflective){
+
+    this.radius = radius;
+    this.x = x;
+    this.y = y;
+    this.z = z;
+    this.p1 = p1;
+    this.p2 = p2;
+    this.p3 = p3;
+    this.isReflective = isReflective || false;
+
+    this.getBoundingBox = function(){
+        var center = new Vector3(x,y,z);
+        var min = center.add(new Vector3(-radius, -radius, -radius));
+        var max = center.add(new Vector3(radius, radius, radius));
+
+        return new Box(min, max);
+
+    }
+    //box = this.getBoundingBox();
+
+    this.checkBoundingBox = function(origin, dir){
+        
+        var t0 = 0;
+        var t1 = 300000;
+        var tmin, tmax, tymin, tymax, tzmin, tzmax;
+
+        if (dir.x >= 0){
+            tmin = (box.min.x - origin.x) / dir.x;
+            tmax = (box.max.x - origin.x) / dir.x;
+        }
+        else{
+            tmin = (box.max.x - origin.x) / dir.x;
+            tmax = (box.min.x - origin.x) / dir.x;
+        }
+
+        if (dir.y >= 0){
+            tymin = (box.min.y - origin.y) / dir.y;
+            tymax = (box.max.y - origin.y) / dir.y;
+        }
+        else{
+
+            tymin = (box.max - origin.y) / dir.y;
+            tymax = (box.min - origin.y) / dir.y;
+        }
+
+        if ( (tmin > tymax) || (tymin > tmax))
+            return false;
+
+        if (tymin > tmin)
+            tmin = tymin;
+
+        if (tymax < tmax)
+            tmax = tymax;
+
+
+        if (dir.z >= 0){
+            tzmin = (box.min - origin.z) / dir.z;
+            tzmax = (box.max - origin.z) / dir.z;
+        }
+        else{
+
+            tzmin = (box.max - origin.z) / dir.z;
+            tzmax = (box.min - origin.z) / dir.z;
+        }
+
+        if ( (tmin > tzmax) ||(tzmin > tmax))
+            return false;
+
+        if (tzmin > tmin)
+            tmin = tzmin;
+
+        if (tzmax < tmax)
+            tmax = tzmax;
+
+        return ( (tmin<t1) && (tmax>t0));
+    }
+
+    this.intersects = function(origin, dir){
+            
+       // if (! (this.checkBoundingBox(origin, dir))) return -1;
+        a = dir.x * dir.x + dir.y * dir.y + dir.z * dir.z;
+        b = dir.x * 2*(origin.x - x) + dir.y*2*(origin.y - y) + dir.z*2*(origin.z - z);
+        c = (origin.x - x) * (origin.x - x) + (origin.y - y) * (origin.y - y) +
+             (origin.z - z) * (origin.z - z) - radius*radius;
+
+        var delta = b*b - 4*a*c;
+
+        if (a == 0) return -1;
+
+        var fact = -b / (2*a);
+        if (delta < 0) return -1;
+        else if ( (delta == 0) && (fact > 0) ) return fact;
+        else {
+            var t1 = ((-b + Math.sqrt(delta)) / (2*a));
+            var t2 = ((-b - Math.sqrt(delta)) / (2*a));
+
+            if ( (t1 < 0) && (t2 < 0) ) return -1;
+            else if (t1 < 0) return t2;
+            else if (t2 < 0) return t1;
+            else return Math.min(t1,t2);
+        }
+    }
+
+    this.getNormal = function(p){
+        return new Vector3(p.x - x, p.y - y, p.z - z).normalize();
+    }
+
+    this.getColor = function(p){
+        if (texture_index == -1 ) return new Vector3(p1, p2, p3);
+        var d = this.getNormal(p);
+        var u = 0.5 - Math.atan2(d.z, d.x) / (Math.PI*2);
+        var v = 0.5 - Math.asin(d.y) / Math.PI;
+
+        u = Math.floor(u * earthData[texture_index].width);
+        v = Math.floor(v * earthData[texture_index].height);
+
+        var uoffset = 0;
+        var voffset = 0;
+
+        u = mod((u+uoffset),earthData[texture_index].width);
+        v = mod((v+voffset),earthData[texture_index].height);
+
+        var index = (v*earthData[texture_index].width + u) * 4;
+        var r = earthData[texture_index].data[index];
+        var g = earthData[texture_index].data[index+1];
+        var b = earthData[texture_index].data[index+2];
+
+        return new Vector3(r/255.0,g/255.0,b/255.0);
+        // return new Vector3(p1,p2,p3);
+
+    }
+}
+
+function Plane(normal, offset, color, minBounds, maxBounds, isReflective){
+
+    this.normal = normal;
+    this.offset = offset;
+    this.isReflective = isReflective || false;
+    this.p1 = color.x;
+    this.p2 = color.y;
+    this.p3 = color.z;
+
+    this.intersects = function(origin, direction){
+
+
+        var t = -1*(origin.dot(normal) + offset) / (direction.dot(normal));
+
+        if (t<0) return -1;
+
+        var p = origin.add(direction.times(t));  
+        if (!p.isBetween(minBounds, maxBounds)) return -1;    
+        else return t;
+    }
+
+    this.getNormal = function(){
+        return normal;
+    }
+
+    this.getColor = function(p){
+
+        // if ( ((p.x % 2) == 0) && ((p.y%2) == 0) ) return new Vector3(0,0,0);
+        // if ( ((Math.floor(p.x) % 10) < 5) && ((Math.floor(p.z) % 10) < 5) ) return new Vector3(0.95,0.95,0.95);
+
+        if ( (mod(Math.floor(p.x),10)  < 9) && (mod(Math.floor(p.z),10)  < 9) ) 
+            return new Vector3(1,1,1);
+        else return new Vector3(34/255.0,139/255.0,34/255.0);
+        // else return new Vector3(0,0,0);
+
+    }
+}
+    
+function Camera(pos, direction, fov){
+    this.pos = pos;
+    this.direction = direction;
+    this.fov = fov;
+}
+    
+function Ray(origin, direction){
+    this.origin = origin;
+    this.direction = direction;
+}
+
+function Light(sphere){
+    this.sphere = sphere;
+
+    this.getRandomPoint = function(){
+
+        var u = Math.random();
+        var v = Math.random();
+
+        var q = 2 * Math.PI * u;
+        var f = Math.acos(2*v - 1);
+
+        return new Vector3(sphere.radius * Math.cos(q) * Math.sin(f),
+                           sphere.radius * Math.sin(q) * Math.sin(f),
+                           sphere.radius * Math.cos(f));
+
+    }
+
+}
+function Vector3(x,y,z){
+    this.x = x;
+    this.y = y;
+    this.z = z;
+
+    this.add = function(v){
+        var a = this.x + v.x;
+        var b = this.y + v.y;
+        var c = this.z + v.z;
+        return new Vector3(a,b,c);
+    }
+
+    this.times = function(arg){
+        var a = this.x * arg;
+        var b = this.y * arg;
+        var c = this.z * arg;
+        return new Vector3(a,b,c);
+    }
+
+    this.normalize = function(){
+        var length = Math.sqrt(x*x+y*y+z*z);
+        return this.times(1.0/length);
+    }
+    this.copy = function(){ return new Vector3(this.x, this.y, this.z); }
+    this.toString = function(){ return "x = " + x + " y = "+ y +" z = "+z; }
+    this.dot = function(other){ return (x *other.x + y*other.y + z*other.z); }
+
+    this.cross = function(other){
+
+        return new Vector3(y * other.z - z * other.y,
+                           z * other.x - x * other.z,
+                           x * other.y - y * other.x );
+    }
+
+    this.equals = function(other){
+
+        return ((x == other.x)&&(y == other.y)&&(z == other.z));
+
+    }
+
+    this.timesV = function(other){
+        return new Vector3(x*other.x, y*other.y, z*other.z);
+    }
+
+    this.isBetween = function(minBound, maxBound){
+
+        // var v1 = this.add(minBound.times(-1));
+        // var v2 = maxBound.add(this.times(-1));
+
+        // return ((v1.x > 0) && (v2.x > 0) && 
+        //         (v1.y > 0) && (v2.y > 0) && 
+        //         (v1.z > 0) && (v2.z > 0) );
+
+        return ( (this.x >= minBound.x) && (this.x <= maxBound.x) &&
+                 (this.y >= minBound.y) && (this.y <= maxBound.y) &&
+                 (this.z >= minBound.z) && (this.z <= maxBound.z) );
+    }
+}
+
+function outputTracer(tracer, document){
+    var s = "";
+
+    for ( var i = 0; i < tracer.length; i++){
+        if (typeof tracer[i][1] == 'undefined') s = s.concat("undefined <br>");
+        else s = s.concat(tracer[i][0] + " : " + tracer[i][1].toString() + "<br>");
+    }
+    return s;
+}
+
+function trace(ray, objects, light, depth){
+
+            if (depth > 3) return new Vector3(1,1,1);
+            var ts = [];
+            for (var i = 0; i < objects.length; i++)
+                ts[i] = objects[i].intersects(ray.origin, ray.direction);
+
+            var t = -2;
+            var hitObject;
+            //pass on each intersection result to see whether an object's been hit and which
+            for (var i = 0; i < ts.length; i++){
+                if (t == -2){ //no intersection yet
+                    if (ts[i] > 0){
+                        t = ts[i];
+                        hitObject = i;
+                    }
+                }
+                else{ //there has been an intersection previously
+                    if ( (ts[i] > 0) && (ts[i] < t) ){
+                        t = ts[i];
+                        hitObject = i;
+                    }
+                }
+            }
+
+            // if (t < 0) if (depth == 0) return new Vector3(105/255.0,180/255.0,250/255.0);
+                       // else return new Vector3(135/255.0,206/255.0,250/255.0) ;
+            // if (t < 0) if (depth == 0) return new Vector3(0.05,0.05,0.05);
+            //            else return new Vector3(0.3,0.3,0.3) ;
+            if (t < 0) return getSkyColor(ray.direction);
+            else{
+                var p = ray.origin.add(ray.direction.times(t));
+                return shade(objects, hitObject, light, p, ray, depth);  
+            } 
+}
+
+function shade(objects, hitObject, light, p, ray, depth){
+    //is our object in the shadow?
+    var pixelColor = new Vector3(0,0,0);
+    var object = objects[hitObject];
+    var sh = 1;
+    for (var i = 0; i < objects.length; i++){
+        if (i == hitObject) continue;
+        if (objects[i].intersects(p, light) > 0) {
+            if(objects[i].isReflective) sh = 0.3;
+            else sh = 0.3;
+            break;
+        }
+    }
+    if (depth>1) sh = 1;
+        depth = depth+1;
+
+    var normal = object.getNormal(p);
+    var prod = normal.dot(light);
+    // var prod = 1;
+
+    // var max = Math.max(prod, 0);
+    // if ( (object.isReflective)) max = 1;
+    // var max = Math.abs(prod);
+    var max;
+    if (prod<0.1) max = 0.1;
+    else max = prod;
+    var color = object.getColor(p);
+    pixelColor = pixelColor.add(new Vector3(color.x  * max * sh, 
+                                            color.y  * max * sh,
+                                            color.z  * max * sh));
+
+    // if (object.isReflective && (max>0)&& (sh == 1)){
+    if (object.isReflective && (max>0)){
+
+        var term2 = normal.times(ray.direction.dot(normal) * -2);
+
+        var direction = ray.direction.add(term2);
+        var reflectedRay = new Ray(p.add(normal.times(0.1)), direction);
+
+        // tracer.push(["ray.direction", ray.direction])
+        // tracer.push(["reflectedRay.direction: ", reflectedRay.direction]);
+
+        pixelColor = pixelColor.timesV(trace(reflectedRay, objects, light, depth)) ;
+        // pixelColor = trace(reflectedRay, objects, light, depth) ;
+        // if (pixelColor.equals(new Vector3(1,1,1)))
+        //     pixelColor = new Vector3(0.9,0.9,0.9);
+    
+    } 
+
+    return pixelColor;
+}
+
+function getSkyColor(dir){
+        var d = dir;
+        var texture_index = 3;
+        var u = 0.5 - Math.atan2(d.z, d.x) / (Math.PI*2);
+        var v = 0.5 - Math.asin(d.y) / Math.PI;
+
+        u = Math.floor(u * earthData[texture_index].width);
+        v = Math.floor(v * earthData[texture_index].height);
+
+        var uoffset = 0;
+        var voffset = 0;
+
+        u = mod((u+uoffset),earthData[texture_index].width);
+        v = mod((v+voffset),earthData[texture_index].height);
+
+        var index = (v*earthData[texture_index].width + u) * 4;
+        var r = earthData[texture_index].data[index];
+        var g = earthData[texture_index].data[index+1];
+        var b = earthData[texture_index].data[index+2];
+
+        return new Vector3(r/255.0,g/255.0,b/255.0);
+}
+
+function mod(m, n) {
+        return ((m % n) + n) % n;
+}
+
+// var ctx;
+function getImageData(img){
+    var cvs = document.createElement('canvas');
+    cvs.width = img.width;
+    cvs.height = img.height;
+    console.log(img);
+    var ctxt = cvs.getContext("2d");
+    ctxt.drawImage(img,0,0);
+    document.write(cvs.width);
+
+    return ctxt.getImageData(0,0, cvs.width, cvs.height);
+    // earthData2 = earthData.data;
+    // // document.write(earthData.width);
+    // document.write(earthData2[1]);
+}
+
+var realLight;
+
+function main() {
+    // var earthimg = document.createElement('earthimg');
+    var earthimg = new Image();
+    var poolimg = new Image();
+    var basketimg = new Image();
+    var skyimg = new Image();
+    var roadimg = new Image();
+    var sunimg = new Image();
+    var road2img = new Image();
+    // earthimg.crossOrigin='';
+
+    earthimg.src="assets/earth.jpg";
+    poolimg.src="assets/billiard.png";
+    basketimg.src="assets/basketball.jpg";
+    sunimg.src="assets/sun.png";
+    skyimg.src="assets/source.png";
+    roadimg.src="assets/road.jpg";
+    road2img.src="assets/road2.jpg";
+
+    earthData[0] = getImageData(earthimg);
+    earthData[1] = getImageData(poolimg);
+    earthData[2] = getImageData(basketimg);
+    // earthData[3] = getImageData(marieimg);
+    earthData[3] = getImageData(skyimg);
+    earthData[4] = getImageData(roadimg);
+    earthData[5] = getImageData(sunimg);
+    earthData[6] = getImageData(road2img);
+
+    // document.write("earthdata.length="+earthData.data.length);
+    // var cvs = document.getElementById("cvs");
+    // cvs.width = earthimg.width;
+    // cvs.height = earthimg.height;
+
+    // var ctxt = cvs.getContext("2d");
+    // ctxt.drawImage(earthimg,0,0);
+    // earthData = ctxt.getImageData(0,0, cvs.width, cvs.height);
+    // // document.write(earthData.width);
+    // document.write(earthData.data[1]);
+    
+    
+    realLight = new Light(new Sphere(10, 0, 100, 0, 1,1,1, -1));
+
+    var wlh = window.location.href;
+    var iog = wlh.indexOf("#");
+    var argv = iog > 0 ? wlh.slice(iog + 1).split(",") : [];
+
+    // parse URL "command-line"
+    var width = argv[0] ? argv[0] : 512, 
+        height = argv[1] ? argv[1] : 512;
+    // var width = argv[0] ? argv[0] : 1024, 
+    //     height = argv[1] ? argv[1] : 1024;
+
+    var image = new Float32Array(3 * width * height);
+    var radius = 100000;
+    // var sphere1 = new Sphere(100000, 80, radius, 0, 0.75,0.75,0.75);
+    var sphere1 = new Sphere(40, 70, 40, 0, 0.3, 0.5,0.75, 5); //blue
+    var sphere2 = new Sphere(radius, 80, -radius-14, 0, 0.75, 0.75, 0.75, -1); //big
+    var sphere3 = new Sphere(20, 15, -10, 80, 0.88,0.34, 0.5, 1); //pink
+    var sphere4 = new Sphere(15, -55, 0, 50, 0.5,0.84, 0.5, 2); //green
+    var sphere5 = new Sphere(100, -70, 30, -230, 205/255.0,127/255.0, 50/255.0 , -1, true); //reflect
+    var sphere6 = new Sphere(20, 50, -10, 30, 0.6,0.2, 0.8, -1, true); //reflect
+    var plane = new Plane(new Vector3(0,1,0), 30, 
+                          new Vector3(230/255.0, 228/255.0, 216/255.0),
+                          new Vector3(-120, -35, -130),
+                          new Vector3(120, -25, 130), true);
+    var leftWall = new Plane(new Vector3(0.8,0,-0.2).normalize(), 110, new Vector3(1,0,0).normalize(), false);
+
+    var backWall = new Plane(new Vector3(0,0,1).normalize(), 1000000, new Vector3(1,1,0).normalize(), true);
+
+    var objects = [];
+
+    objects.push(sphere1);
+    // objects.push(sphere2);
+    objects.push(sphere3);
+    objects.push(sphere4);
+    objects.push(sphere5);
+    objects.push(sphere6);
+    objects.push(plane);
+    //objects.push(leftWall);
+    // objects.push(backWall);
+
+
+    for (i = 0; i < objects.length; i++){
+        // objects[i].box = objects[i].getBoundingBox();
+    }
+    console.time("finding out pixel1");
+    var light = new Vector3(10,10,10).normalize();
+    // var light = new Vector3(0,1,0).normalize();
+
+    //Définition de la camera et calculs pour trouver les coordonnées du premier pixel du viewport
+    // var camera = new Camera(new Vector3(10, 5, 250), new Vector3(0, 0.2, -1).normalize(), 60);
+    // var camera = new Camera(new Vector3(750, 52, -10), new Vector3(-1, -0.043, 0), 29.5);
+    // var camera = new Camera(new Vector3(70, -100, 0), new Vector3(0, -0.3, -1), 29.5);
+    var camera = new Camera(new Vector3(10, 100, 300), new Vector3(0, -0.3, -1).normalize(), 60);
+
+    var radianfov = camera.fov * (Math.PI/180);
+
+    var w = camera.direction.copy();
+
+    var u = w.cross(new Vector3(0,1,0));
+    // var u = new Vector3(1,0,0);
+    var v = w.cross(u);
+
+    w = w.normalize();
+    v = v.normalize();
+
+    var pixelWidth = 2 * Math.tan(radianfov / 2) / width;
+    var pixelHeight = 2 * Math.tan(radianfov / 2) / width;
+
+
+    var corner1 = camera.pos.add(w).
+                             add( u.times(-Math.tan(radianfov / 2))).
+                             add( v.times(Math.tan(radianfov / 2)));
+
+
+    // //Attention aux signes !
+    // var pixel1 = corner1.add(u.times(pixelWidth/2.0)).
+    //                      add(v.times(pixelHeight/2.0));
+    var pixel1 = corner1;
+    var pixel = pixel1.copy();
+    console.timeEnd("finding out pixel1");
+    //Lanceur de rayons. Itère sur tous les pixels du coin haut-gauche
+    for (var y = 0; y < height; y++) { // loop over rows
+        for (var x = 0; x < width; x++) { // loop over columns
+            var cnd; 
+            if ((y == 192) && (x == 256)) cnd = true;
+            else cnd = false;
+
+            var pixel_index = (height - y - 1) * width + x;
+            var direction = pixel.add( (camera.pos).times(-1.0) ).normalize();
+            var color = trace(new Ray(camera.pos, direction), objects, light, 0);
+            
+            // var arr = [];
+            // var count = 0;
+            // var numSamples = 1;
+            // for (var i = 0; i < numSamples; i++){
+            //     for (var j = 0; j < numSamples; j++){
+
+            //         direction = pixel.add( (camera.pos).times(-1.0) ).normalize();
+            //         //arr[count] = trace(new Ray(camera.pos, direction), objects, light, 0);
+            //         if (j==(numSamples-1))break;
+            //         pixel.add(u.times(pixelWidth/numSamples));
+
+            //         count++;
+            //     }
+            //     if (i==(numSamples-1))break;
+            //     pixel.add(v.times(-1.0*pixelHeight));
+            //     pixel.add(u.times(-1.0*pixelWidth));
+            // }
+
+            // var colorx = 0; colory = 0; colorz = 0;
+            // for (var i = 0; i < arr.length; i++){
+            //     colorx += arr[i].x;
+            //     colory += arr[i].y;
+            //     colorz += arr[i].z;
+            // }
+            image[3 * pixel_index + 0] = color.x;
+            image[3 * pixel_index + 1] = color.y;
+            image[3 * pixel_index + 2] = color.z;
+
+            // if (cnd){
+            //     tracer.push(["s1:", sphere1.isReflective]);
+            //     tracer.push(["s5:", sphere5.isReflective]);
+            //     document.write(outputTracer(tracer));
+            // }
+            pixel.add(v.times(1.0*pixelHeight));
+            pixel = pixel.add(u.times(pixelWidth));
+
+        } // end of column loop
+
+        pixel1 = pixel1.add(v.times(-1.0*pixelHeight));
+        pixel = pixel1.copy();
+    }
+    // document.write(outputTracer(tracer));
+
+
+
+    // Create an HTML canvas element to house our image...
+    var canvas = document.createElement( "canvas" );
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.border = "black 1px solid";
+    document.body.appendChild( canvas );
+
+    // ... and get access to all of its data context
+    var context2D = canvas.getContext("2d");
+    var imgData = context2D.getImageData(0, 0, width, height);
+
+    // populate image data
+    for(var i = 0, j = 0, k = 0; i < width * height; i++){
+        imgData.data[ j++ ] = gammaCorrectToInt( image[k++] );
+        imgData.data[ j++ ] = gammaCorrectToInt( image[k++] );
+        imgData.data[ j++ ] = gammaCorrectToInt( image[k++] );
+        imgData.data[ j++ ] = 255; // alpha = 1, always
+    }
+
+    context2D.putImageData(imgData, 0, 0);
+    // context2D.drawImage(earthimg,0,0);
+    // var textNode = document.createTextNode("I made it here!");
+    // document.body.appendChild(textNode);
+    // var element = document.getElementById("earth");
+    // element.parent.removeChild(element);
+}
+
+function addObject(){
+    var newDiv = document.createElement("div");
+    var myObjects = document.getElementById("myObjects");
+    var br = document.createElement('br');
+    var label = document.createTextNode("Sphere ");
+    var labelX = document.createTextNode("x = ");
+    var labelY = document.createTextNode("y = ");
+    var labelZ = document.createTextNode("z = ");
+    var labelR = document.createTextNode("radius = ");
+
+    var inputX = document.createElement("input");
+    var inputY = document.createElement("input");
+    var inputZ = document.createElement("input");
+    var inputR = document.createElement("input");
+
+    var removeButton = document.createElement("input");
+
+    inputX.type="text";
+    inputY.type="text";
+    inputZ.type="text";
+    inputR.type="text";
+
+    removeButton.type ="button";
+    removeButton.value = "Remove";
+    removeButton.onclick = function(){
+        newDiv.parentNode.removeChild(newDiv);
+    }
+
+    newDiv.appendChild(label);
+
+    newDiv.appendChild(labelX);
+    newDiv.appendChild(inputX);
+    newDiv.appendChild(labelY);
+    newDiv.appendChild(inputY);
+    newDiv.appendChild(labelZ);
+    newDiv.appendChild(inputZ);
+    newDiv.appendChild(labelR);
+    newDiv.appendChild(inputR);
+    
+
+    newDiv.appendChild(removeButton);
+    newDiv.appendChild(br);
+
+    myObjects.appendChild(newDiv);
+}
+
+function populateObjects(){
+    objects = [];
+    var nodes = document.getElementById("myObjects").childNodes;
+
+    var l = nodes.length;
+
+    if (l > 1)
+        for (var i = 1; i < l; i++){ //passing on each line within the objects block
+
+            var elems = nodes[i].childNodes;
+            var x = parseFloat(elems[2].value);
+            var y = parseFloat(elems[4].value);
+            var z = parseFloat(elems[6].value);
+            var radius = parseFloat(elems[8].value);
+
+            var newSphere = new Sphere(radius, x,y,z, 0.5, 0.5, 0.5, -1, false);
+            objects.push(newSphere);
+        
+            // console.log("lol");
+        }
+
+}
+
+</script><style type="text/css">
+
+
+</style></head><body><canvas width="512" height="512"></canvas>
+<form id="someId" onsubmit="main();">
+     Width: <input id="daWidth" type="text" value="320"><br>
+Height: <input id ="daHeight" type="text" value="240"><br>
+Camera.position.x: <input id ="cameraposx" type="text" value="50"><br>
+Camera.position.y: <input id ="cameraposy" type="text" value="52"><br>
+Camera.position.z: <input id ="cameraposz" type="text" value="296"><br>
+Camera.orientation.x: <input id ="cameradirx" type="text" value="0"><br>
+Camera.orientation.y: <input id ="cameradiry" type="text" value="0"><br>
+Camera.orientation.z: <input id ="cameradirz" type="text" value="-1"><br>
+light.orientation.x: <input id ="lightdirx" type="text" value="-10"><br>
+light.orientation.y: <input id ="lightdiry" type="text" value="4"><br>
+light.orientation.z: <input id ="lightdirz" type="text" value="10"><br>
+
+<div id="myObjects">
+
+</div>
+<input type="button" onclick="addObject();" value="Add object">
+
+<input type="button" onclick="main();" value="go!">
+</form>
+
+
+<img id="earth" src="assets/earth.jpg"  width="600" height="400">
+<img id="earth" src="assets/billiard.png"  width="512" height="256">
+<img id="basketball" src="assets/basketball.jpg"  width="512" height="256">
+<img id="sky" src="assets/source.png"  width="2048" height="1024">
+<img id="road" src="assets/road.jpg"  width="895" height="282">
+<img id="road2" src="assets/road2.jpg"  width="895" height="282">
+<img id="sun" src="assets/sun.png"  width="640" height="640">
+
+
+<canvas id="c" width="600" height="400"></canvas>
+
+
+</body></html>

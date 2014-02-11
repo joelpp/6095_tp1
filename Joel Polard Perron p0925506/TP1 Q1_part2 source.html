@@ -1,0 +1,167 @@
+<html>
+	<head>
+		<title>My first Three.js app</title>
+		<style>canvas { width: 100%; height: 100% }</style>
+        
+        <script id = "vertexShader" type ="x-shader\x-vertex">
+
+
+        varying vec3 vNormal; //this will be passed to the pixel shader
+
+        void main() { 
+            vNormal = normal;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+        }
+        </script>
+        
+        <script id = "pixelShader" type ="x-shader\x-vertex">
+        
+
+
+        varying vec3 vNormal; //obtained from vertex shader
+        uniform vec3 rho;
+
+        void main() {
+            vec3 light = vec3(-0.680414, 0.272166, 0.680414); //directional light
+            
+            float prod = max(0.0, dot(vNormal, light)); //last factor in illumination equation
+
+            //set each pixel's rgb value according to reflectance in either direction
+            gl_FragColor = vec4(prod*rho.x,prod*rho.y,prod*rho.z,1.0);
+        }
+        
+        </script>
+	</head>
+	<body>
+		<script src="https://rawgithub.com/mrdoob/three.js/master/build/three.js"></script>
+        
+
+		<script>
+			var width = 512;
+            var height = 384;
+            var scene = new THREE.Scene();
+            var camera = new THREE.PerspectiveCamera(29.5, width/height, 0.1, 10000);
+            
+            var renderer = new THREE.WebGLRenderer();
+            renderer.setSize( width, height);
+            renderer.setClearColor('white', 1);
+            document.body.appendChild( renderer.domElement );
+            
+            var smallMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    rho: {
+                        type:"v3",
+                        value: new THREE.Vector3( 0.3, 0.5, 0.75 )
+                    }
+                },
+                vertexShader: document.getElementById('vertexShader').innerHTML,
+                fragmentShader: document.getElementById('pixelShader').innerHTML
+            });
+            
+            var bigMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    rho: {
+                        type:"v3",
+                        value: new THREE.Vector3( 0.75, 0.75, 0.75 )
+                    }
+                },
+                vertexShader: document.getElementById('vertexShader').innerHTML,
+                fragmentShader: document.getElementById('pixelShader').innerHTML
+            });
+            
+            var basicMaterial = new THREE.MeshLambertMaterial({
+                color:0x4C7FBF,
+                shading:THREE.FlatShading
+            })
+
+            var phongMaterial = new THREE.MeshPhongMaterial({
+                color:0x4C7FBF,
+                shading:THREE.FlatShading,
+                perPixel: true
+
+            })
+            
+            var radius = 100000;
+            // var numVertices  = 15;
+            var numVertices  = [
+                4,
+                4,
+                4,
+                15,15,15,
+                200,200,200
+            ]
+
+            // var gShader = THREE.ShaderTypes[1];
+
+            var smallGeometry = new THREE.SphereGeometry(40,numVertices[0], numVertices[0]);
+            var smallGeometry2 = new THREE.SphereGeometry(40,numVertices[1], numVertices[1]);        
+            var smallGeometry3 = new THREE.SphereGeometry(40,numVertices[2], numVertices[2]);       
+            var smallGeometry4 = new THREE.SphereGeometry(40,numVertices[3], numVertices[3]);       
+            var smallGeometry5 = new THREE.SphereGeometry(40,numVertices[4], numVertices[4]);        
+            var smallGeometry6 = new THREE.SphereGeometry(40,numVertices[5], numVertices[5]);      
+            var smallGeometry7 = new THREE.SphereGeometry(40,numVertices[6], numVertices[6]);        
+            var smallGeometry8 = new THREE.SphereGeometry(40,numVertices[7], numVertices[7]); 
+            var smallGeometry9 = new THREE.SphereGeometry(40,numVertices[8], numVertices[8]);            
+
+            var bigGeometry = new THREE.SphereGeometry(radius,60,60);            
+            
+            // var smallSphere = new THREE.Mesh(smallGeometry, smallMaterial);
+            var smallSphere = new THREE.Mesh(smallGeometry, basicMaterial);
+            var smallSphere2 = new THREE.Mesh(smallGeometry2, phongMaterial);
+            var smallSphere3 = new THREE.Mesh(smallGeometry3, smallMaterial);
+            var smallSphere4 = new THREE.Mesh(smallGeometry4, basicMaterial);
+            var smallSphere5 = new THREE.Mesh(smallGeometry5, phongMaterial);
+            var smallSphere6 = new THREE.Mesh(smallGeometry6, smallMaterial);
+            var smallSphere7 = new THREE.Mesh(smallGeometry7, basicMaterial);
+            var smallSphere8 = new THREE.Mesh(smallGeometry8, phongMaterial);
+            var smallSphere9 = new THREE.Mesh(smallGeometry9, smallMaterial);
+
+            smallSphere.position.set(-20,130,0);
+            smallSphere2.position.set(70,130,0);
+            smallSphere3.position.set(160,130,0);
+            smallSphere4.position.set(-20,50,0);
+            smallSphere5.position.set(70,50,0);
+            smallSphere6.position.set(160,50,0);
+            smallSphere7.position.set(-20,-30,0);
+            smallSphere8.position.set(70,-30,0);
+            smallSphere9.position.set(160,-30,0);
+
+            
+            var bigSphere = new THREE.Mesh(bigGeometry, bigMaterial);
+            bigSphere.position.set(80, -radius, 0);
+            
+            var directionalLight = new THREE.DirectionalLight(0xffffff);
+            directionalLight.position.set(-5,2,5);
+            directionalLight.intensity = 1;
+            directionalLight.target.position.set(0.680414, -0.272166, -0.680414);
+
+            var vector = new THREE.Vector3(0, -0.043, -1);
+            
+            // add the sphere to the scene
+            scene.add(smallSphere);
+            scene.add(smallSphere2);
+            scene.add(smallSphere3);
+            scene.add(smallSphere4);
+            scene.add(smallSphere5);
+            scene.add(smallSphere6);
+            scene.add(smallSphere7);
+            scene.add(smallSphere8);
+            scene.add(smallSphere9);
+
+            // scene.add(bigSphere);
+            scene.add(directionalLight);
+            
+            
+            camera.position.x = 50;
+            camera.position.y = 52;
+            camera.position.z = 500;
+            //camera.lookAt(vector);
+
+            var render = function (){
+                requestAnimationFrame(render);
+                renderer.render(scene, camera);
+            }
+            render();
+		</script>
+	</body>
+</html>

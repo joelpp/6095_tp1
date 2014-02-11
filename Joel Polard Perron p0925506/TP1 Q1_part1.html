@@ -1,0 +1,98 @@
+<html>
+	<head>
+		<title>My first Three.js app</title>
+		<style>canvas { width: 100%; height: 100% }</style>
+        
+        <script id = "vertexShader" type ="x-shader\x-vertex">
+        varying vec3 vNormal; //this will be passed to the pixel shader
+
+        void main() { 
+            vNormal = normal;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
+        }
+        </script>
+        
+        <script id = "pixelShader" type ="x-shader\x-vertex">
+        
+        varying vec3 vNormal; //obtained from vertex shader
+        uniform vec3 rho;
+
+        void main() {
+            vec3 light = vec3(-10, 4, 10); //directional light
+            light = normalize(light);
+            float prod = max(0.0, dot(vNormal, light)); //last factor in illumination equation
+
+            //set each pixel's rgb value according to reflectance in either direction
+            gl_FragColor = vec4(prod*rho.x,prod*rho.y,prod*rho.z,1.0);
+        }
+        
+        </script>
+	</head>
+	<body>
+		<script src="https://rawgithub.com/mrdoob/three.js/master/build/three.js"></script>
+        
+
+		<script>
+			var width = 512;
+            var height = 384;
+            var scene = new THREE.Scene();
+            var camera = new THREE.PerspectiveCamera(29.5, width/height, 0.1, 10000);
+            
+            var renderer = new THREE.WebGLRenderer();
+            renderer.setSize( width, height);
+            renderer.setClearColor('white', 1);
+            document.body.appendChild( renderer.domElement );
+            
+            var smallMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    rho: {
+                        type:"v3",
+                        value: new THREE.Vector3( 0.3, 0.5, 0.75 )
+                    }
+                },
+                vertexShader: document.getElementById('vertexShader').innerHTML,
+                fragmentShader: document.getElementById('pixelShader').innerHTML
+            });
+            
+            var bigMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    rho: {
+                        type:"v3",
+                        value: new THREE.Vector3( 0.75, 0.75, 0.75 )
+                    }
+                },
+                vertexShader: document.getElementById('vertexShader').innerHTML,
+                fragmentShader: document.getElementById('pixelShader').innerHTML
+            });
+            
+            
+            var radius = 100000;
+            var smallGeometry = new THREE.SphereGeometry(40,15,15);            
+            var bigGeometry = new THREE.SphereGeometry(radius,60,60);            
+            
+            var smallSphere = new THREE.Mesh(smallGeometry, smallMaterial);
+            smallSphere.position.set(50,40,0);
+            
+            var bigSphere = new THREE.Mesh(bigGeometry, bigMaterial);
+            bigSphere.position.set(80, -radius, 0);
+            
+            var directionalLight = new THREE.DirectionalLight(0xffffff);
+            directionalLight.position.set(0,0,1);            
+
+            scene.add(smallSphere);
+            scene.add(bigSphere);
+            scene.add(directionalLight);
+            
+            
+            camera.position.x = 50;
+            camera.position.y = 52;
+            camera.position.z = 296;
+
+            var render = function (){
+                requestAnimationFrame(render);
+                renderer.render(scene, camera);
+            }
+            render();
+		</script>
+	</body>
+</html>

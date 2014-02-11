@@ -1,0 +1,386 @@
+
+<!-- saved from url=(0053)http://www.iro.umontreal.ca/~dift6095/js_minimal.html 
+
+0 – Spécifications de la scène
+Nous allons utiliser la même scène 3D pour chaque partie du TP. Voici les spécifications de la scène:
+• Caméra perspective
+o position = (50,52,296)
+o direction (au lieu d’une position) look-at = |(0,-0.043,-1)| o vecteur de la direction droite = 𝑥
+o champ de vision = 29.5 degrés
+o Lumière directionnelle à |(-10,4,10)|; intensité = 𝜋 • Scène avec 2 sphères diffuses (format = rayon, centre, 𝜌)
+o 10!, (80, 10!,0), (0.75, 0.75, 0.75)
+o 40, (50,40,0), (0.3,0.5,0.75)
+Effectuez votre rendu sur un élément de canvas à résolution 512 × 384.-- -->
+<html><head><meta http-equiv="Content-Type" content="text/html; charset=ISO-8859-1"><script type="text/javascript">
+function clamp( x ){
+    return x<0 ? 0 : x>1 ? 1 : x;
+}
+
+// do some basic tonemapping for gamma correction, and map [0,1] radiance values to 8-bit output pixel values
+function gammaCorrectToInt( x ) {
+    return Math.floor( Math.pow( clamp( x ), 1/2.2 ) * 255 + 0.5 );
+}
+
+//Définition d'une sphère dans l'espace 3d. p correspondent aux 3 valeurs de réflectance    
+function Sphere(radius, x, y, z, p1, p2, p3){
+
+    this.radius = radius;
+    this.x = x;
+    this.y = y;
+    this.z = z;
+    this.p1 = p1;
+    this.p2 = p2;
+    this.p3 = p3;
+
+    this.intersects = function(origin, dir){
+            
+        a = dir.x * dir.x + dir.y * dir.y + dir.z * dir.z;
+        b = dir.x * 2*(origin.x - x) + dir.y*2*(origin.y - y) + dir.z*2*(origin.z - z);
+        c = (origin.x - x) * (origin.x - x) + (origin.y - y) * (origin.y - y) +
+             (origin.z - z) * (origin.z - z) - radius*radius;
+
+        var delta = b*b - 4*a*c;
+
+        if (a == 0) return -1;
+
+        var fact = -b / (2*a);
+        if (delta < 0) return -1;
+        else if ( (delta == 0) && (fact > 0) ) return fact;
+        else {
+            var t1 = ((-b + Math.sqrt(delta)) / (2*a));
+            var t2 = ((-b - Math.sqrt(delta)) / (2*a));
+
+            if ( (t1 < 0) && (t2 < 0) ) return -1;
+            else if (t1 < 0) return t2;
+            else if (t2 < 0) return t1;
+            else return Math.min(t1,t2);
+        }
+    }
+
+    this.getNormal = function(p){
+        return new Vector3(p.x - x, p.y - y, p.z - z).normalize();
+    }
+
+}
+    
+function Camera(pos, direction, fov){
+    this.pos = pos;
+    this.direction = direction;
+    this.fov = fov;
+}
+    
+function Ray(direction){
+    this.direction = direction;
+}
+
+function Vector3(x,y,z){
+    this.x = x;
+    this.y = y;
+    this.z = z;
+
+    this.add = function(v){
+        var a = this.x + v.x;
+        var b = this.y + v.y;
+        var c = this.z + v.z;
+        return new Vector3(a,b,c);
+    }
+
+    this.times = function(arg){
+        var a = this.x * arg;
+        var b = this.y * arg;
+        var c = this.z * arg;
+        return new Vector3(a,b,c);
+    }
+
+    this.normalize = function(){
+        var length = Math.sqrt(x*x+y*y+z*z);
+        return this.times(1.0/length);
+    }
+    this.copy = function(){ return new Vector3(this.x, this.y, this.z); }
+    this.toString = function(){ return "x = " + x + " y = "+ y +" z = "+z; }
+    this.dot = function(other){ return (x *other.x + y*other.y + z*other.z); }
+
+    this.cross = function(other){
+
+        return new Vector3(y * other.z - z * other.y,
+                           z * other.x - x * other.z,
+                           x * other.y - y * other.x );
+    }
+}
+
+function outputTracer(tracer, document){
+    var s = "";
+    for ( var i = 0; i < tracer.length; i++){
+        s = s.concat(tracer[i][0] + " : " + tracer[i][1].toString() + "<br>");
+    }
+    return s;
+}
+var spheres = [];
+
+function main() {
+    populateObjects();
+    var tracer = [];
+    var wlh = window.location.href;
+    var iog = wlh.indexOf("#");
+    var argv = iog > 0 ? wlh.slice(iog + 1).split(",") : [];
+
+    // parse URL "command-line"
+    // var width = argv[0] ? argv[0] : 512, height = argv[1] ? argv[1] : 384;
+
+    var drawing = document.getElementById("theCanvas");
+
+    if (drawing != null) drawing.parentNode.removeChild(drawing);
+
+    var width = document.getElementById("daWidth").value;
+    var height = document.getElementById("daHeight").value;
+    var camx =  parseFloat(document.getElementById("cameraposx").value);
+    var camy =  parseFloat(document.getElementById("cameraposy").value);
+    var camz =  parseFloat(document.getElementById("cameraposz").value);
+    var campos = new Vector3(camx, camy, camz);
+
+    var camdirx =  parseFloat(document.getElementById("cameradirx").value);
+    var camdiry =  parseFloat(document.getElementById("cameradiry").value);
+    var camdirz =  parseFloat(document.getElementById("cameradirz").value);
+    var camdir = new Vector3(camdirx, camdiry, camdirz).normalize();
+
+    var lightdirx =  parseFloat(document.getElementById("lightdirx").value);
+    var lightdiry =  parseFloat(document.getElementById("lightdiry").value);
+    var lightdirz =  parseFloat(document.getElementById("lightdirz").value);
+    var lightdir = new Vector3(lightdirx, lightdiry, lightdirz).normalize();
+    
+    var image = new Float32Array(3 * width * height);
+    var radius = 100000;
+    
+    // var sphere1 = new Sphere(100000, 80, radius, 0, 0.75,0.75,0.75);
+    var sphere1 = new Sphere(40, 50, 40, 0, 0.3, 0.5,0.75);
+    var sphere2 = new Sphere(radius, 80, -radius, 0, 0.75, 0.75, 0.75);
+    var sphere3 = new Sphere(25, 0, 90, -10, 0.88,0.34, 0.5);
+    var sphere4 = new Sphere(30, 55, 80, -50, 0.5,0.84, 0.5);
+
+    // var spheres = [];
+    // spheres.push(sphere2);
+    // spheres.push(sphere1);
+
+    // console.log(spheres);
+
+    // var light = new Vector3(-10,4,10).normalize();
+    var light = lightdir;
+
+
+    //Définition de la camera et calculs pour trouver les coordonnées du premier pixel du viewport
+    var camera = new Camera(campos, camdir, 29.5);
+    // document.write(campos.toString() + "<br>" + camera.pos.toString());
+
+
+    // var camera = new Camera(new Vector3(50,52,296), new Vector3(0, -0.043, -1), 29.5);
+
+    var radianfov = camera.fov * (Math.PI/180);
+
+    //u,v,w correspondent a l'espace de la caméra. W pointe vers le champ de vision de la caméra
+    var w = camera.direction.copy();
+    var u = w.cross(new Vector3(0,1,0));
+    var v = w.cross(u);
+
+    w = w.normalize();
+    v = v.normalize();
+
+    //Calcul de la hauteur et largeur d'un pixel dans le monde.
+    var pixelWidth = 2 * Math.tan(radianfov / 2) / width;
+    var pixelHeight = 2 * Math.tan(radianfov / 2) / height;
+
+    //corner1 est le premier coin du premier pixel en haut a gauche
+    var corner1 = camera.pos.add(w).
+                             add( u.times(-Math.tan(radianfov / 2))).
+                             add( v.times(Math.tan(radianfov / 2)));
+
+
+    //pixel1 est le milieu du premier pixel.
+    var pixel1 = corner1.add(u.times(pixelWidth/2.0)).
+                         add(v.times(pixelHeight/2.0));
+    
+    var pixel = pixel1.copy();
+
+    //Lanceur de rayons. Itère sur tous les pixels du coin haut-gauche
+    for (var y = 0; y < height; y++) { // loop over rows
+        for (var x = 0; x < width; x++) { // loop over columns
+
+            var cnd; 
+            if ((y == 192) && (x == 256)) cnd = true;
+            else cnd = false;
+
+            var pixel_index = (height - y - 1) * width + x;
+            var direction = pixel.add( (camera.pos).times(-1.0) ).normalize();
+            
+            //pass on each object in the scene to see if it intersects
+            var ts = [];
+            for (var i = 0; i < spheres.length; i++)
+                ts[i] = spheres[i].intersects(camera.pos, direction);
+            //document.write(ts.toString() + "<br>");
+
+            var t = -2;
+            var hitObject;
+            //pass on each intersection result to see whether an object's been hit and which
+            for (var i = 0; i < ts.length; i++){
+
+                if (t == -2){ //no intersection yet
+                    if (ts[i] > 0){
+                        t = ts[i];
+                        hitObject = i;
+                    }
+                }
+                else{ //there has been an intersection previously
+                    if ( (ts[i] > 0) && (ts[i] < t) ){
+
+                        t = ts[i];
+                        hitObject = i;
+                    }
+                }
+            }
+
+            if (t < 0){
+                image[3 * pixel_index + 0] = 1;
+                image[3 * pixel_index + 1] = 1;
+                image[3 * pixel_index + 2] = 1;
+            }
+
+            else{
+                var p = camera.pos.add(direction.times(t));   
+
+                var normal = spheres[hitObject].getNormal(p);
+
+                var prod = normal.dot(light);
+
+                var max = Math.max(prod, 0);
+
+                image[3 * pixel_index + 0] = spheres[hitObject].p1 * max;
+                image[3 * pixel_index + 1] = spheres[hitObject].p2 * max;
+                image[3 * pixel_index + 2] = spheres[hitObject].p3 * max;
+
+            }
+            
+            pixel = pixel.add(u.times(pixelWidth));
+
+        } // end of column loop
+
+        pixel1 = pixel1.add(v.times(-1.0*pixelHeight));
+        pixel = pixel1.copy();
+    }
+    // Create an HTML canvas element to house our image...
+
+    var canvas = document.createElement( "canvas" );
+    canvas.id = "theCanvas";
+    canvas.width = width;
+    canvas.height = height;
+    canvas.style.border = "black 1px solid";
+    document.body.appendChild( canvas );
+
+    // ... and get access to all of its data context
+    var context2D = canvas.getContext("2d");
+    var imgData = context2D.getImageData(0, 0, width, height);
+
+    // populate image data
+    for(var i = 0, j = 0, k = 0; i < width * height; i++){
+        imgData.data[ j++ ] = gammaCorrectToInt( image[k++] );
+        imgData.data[ j++ ] = gammaCorrectToInt( image[k++] );
+        imgData.data[ j++ ] = gammaCorrectToInt( image[k++] );
+        imgData.data[ j++ ] = 255; // alpha = 1, always
+    }
+
+    context2D.putImageData(imgData, 0, 0);
+    var br = document.createElement('br');
+    // document.body.appendChild(br);
+}
+
+function addObject(){
+    var newDiv = document.createElement("div");
+    var myObjects = document.getElementById("myObjects");
+    var br = document.createElement('br');
+    var label = document.createTextNode("Sphere ");
+    var labelX = document.createTextNode("x = ");
+    var labelY = document.createTextNode("y = ");
+    var labelZ = document.createTextNode("z = ");
+    var labelR = document.createTextNode("radius = ");
+
+    var inputX = document.createElement("input");
+    var inputY = document.createElement("input");
+    var inputZ = document.createElement("input");
+    var inputR = document.createElement("input");
+
+    var removeButton = document.createElement("input");
+
+    inputX.type="text";
+    inputY.type="text";
+    inputZ.type="text";
+    inputR.type="text";
+
+    removeButton.type ="button";
+    removeButton.value = "Remove";
+    removeButton.onclick = function(){
+        newDiv.parentNode.removeChild(newDiv);
+    }
+
+    newDiv.appendChild(label);
+
+    newDiv.appendChild(labelX);
+    newDiv.appendChild(inputX);
+    newDiv.appendChild(labelY);
+    newDiv.appendChild(inputY);
+    newDiv.appendChild(labelZ);
+    newDiv.appendChild(inputZ);
+    newDiv.appendChild(labelR);
+    newDiv.appendChild(inputR);
+    
+
+    newDiv.appendChild(removeButton);
+    newDiv.appendChild(br);
+
+    myObjects.appendChild(newDiv);
+}
+
+function populateObjects(){
+    spheres = [];
+    var nodes = document.getElementById("myObjects").childNodes;
+
+    var l = nodes.length;
+
+    if (l > 1)
+        for (var i = 1; i < l; i++){ //passing on each line within the objects block
+
+            var elems = nodes[i].childNodes;
+            var x = parseFloat(elems[2].value);
+            var y = parseFloat(elems[4].value);
+            var z = parseFloat(elems[6].value);
+            var radius = parseFloat(elems[8].value);
+
+            var newSphere = new Sphere(radius, x,y,z, 0.5, 0.5, 0.5)
+            spheres.push(newSphere);
+        
+            // console.log("lol");
+        }
+
+}
+</script><style type="text/css"></style></head><body>
+
+<form id="someId" onsubmit="main();">
+     Width: <input id="daWidth" type="text" value="320"><br>
+Height: <input id ="daHeight" type="text" value="240"><br>
+Camera.position.x: <input id ="cameraposx" type="text" value="50"><br>
+Camera.position.y: <input id ="cameraposy" type="text" value="52"><br>
+Camera.position.z: <input id ="cameraposz" type="text" value="296"><br>
+Camera.orientation.x: <input id ="cameradirx" type="text" value="0"><br>
+Camera.orientation.y: <input id ="cameradiry" type="text" value="0"><br>
+Camera.orientation.z: <input id ="cameradirz" type="text" value="-1"><br>
+light.orientation.x: <input id ="lightdirx" type="text" value="-10"><br>
+light.orientation.y: <input id ="lightdiry" type="text" value="4"><br>
+light.orientation.z: <input id ="lightdirz" type="text" value="10"><br>
+
+<div id="myObjects">
+
+</div>
+<input type="button" onclick="addObject();" value="Add object">
+
+<input type="button" onclick="main();" value="go!">
+</form>
+
+
+</body></html>
